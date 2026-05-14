@@ -1,10 +1,4 @@
 // swift-tools-version: 5.9
-// Placeholder Package.swift — overwritten by the release workflow on every
-// tagged release with a templated manifest pointing at the corresponding
-// xcframework asset on this repo's GitHub Releases.
-//
-// See release-templates/Package.swift.tmpl in the source repo.
-
 import PackageDescription
 
 let package = Package(
@@ -14,12 +8,10 @@ let package = Package(
         .library(name: "OnramperSDK", targets: ["OnramperSDK"]),
     ],
     targets: [
-        // Replaced at release time with a `.binaryTarget(url:checksum:)` block.
-        // Until the first release ships, this package is not consumable.
-        .target(
+        .binaryTarget(
             name: "OnramperSDK",
-            path: "_placeholder",
-            exclude: ["README.md"]
+            url: "https://github.com/onramper/onramper-ios/releases/download/v1.0.0/OnramperSDK.xcframework.zip",
+            checksum: "757972939abd3fbca8befff74741378ad5fe4eece41c128fdcf170d1ecc5d629"
         ),
     ]
 )
