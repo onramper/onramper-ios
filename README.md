@@ -76,15 +76,15 @@ try await sdk.initialize(sessionId: sessionId, sessionToken: sessionToken)
 `getCheckoutRequirements()` calls the intent endpoint, validates amount limits, determines whether OnramperID login is needed, and returns a self-contained SwiftUI view — a "Buy" button with a Terms-of-Service consent sentence below.
 
 ```swift
-let checkoutButton = try await sdk.getCheckoutRequirements(
+let result = try await sdk.getCheckoutRequirements(
     .init(
         onramperTransactionData: .init(
-            onramp: "moonpay",
-            source: "USD",
-            destination: "BTC",
+            source: "usd",
+            destination: "btc",
             amount: 100,
             type: .buy,
-            country: "US",
+            country: "us",            // optional — derived from request IP if omitted
+            subdivision: "us-ca",     // optional, recommended for US
             paymentMethod: "applepay",
             wallet: .init(network: "bitcoin", address: "bc1q...")
         ),
@@ -92,6 +92,9 @@ let checkoutButton = try await sdk.getCheckoutRequirements(
     ),
     buttonStyle: .init(backgroundColor: .blue, foregroundColor: .white, borderRadius: 12)
 )
+
+// result.button: OnramperCheckoutButton — embed this (Buy + ToS sentence)
+// result.quote:  QuoteResponse          — rate, fees, payout for your UI
 ```
 
 `country` (ISO 3166-1 alpha-2) and `subdivision` (ISO 3166-2, e.g. `"us-ca"`) are both optional. Omit them and the Onramper backend will derive both from the request IP. Pass them only when you already know the user's location (e.g. from your own KYC) — the backend treats integrator-supplied values as authoritative for compliance gating.
@@ -112,7 +115,7 @@ struct BuyView: View {
             }
         }
         .task {
-            checkoutButton = try? await sdk.getCheckoutRequirements(request)
+            checkoutButton = try? await sdk.getCheckoutRequirements(request).button
         }
     }
 }
@@ -135,14 +138,15 @@ The agreement timestamp is captured at the moment the user taps Buy and sent in 
 Call `getCheckoutRequirements()` from any post-init state to restart the flow (e.g., the user changed amount, payment method, or country). The SDK internally resets checkout state and returns a fresh component.
 
 ```swift
-checkoutButton = try await sdk.getCheckoutRequirements(updatedRequest)
+checkoutButton = try await sdk.getCheckoutRequirements(updatedRequest).button
 ```
 
 **Concurrent calls are coalesced.** If a new `getCheckoutRequirements()` call arrives while a previous one is still in flight (e.g., the user rapidly toggles a country picker), the SDK cancels the prior call and starts the new one. The superseded `await` throws `CancellationError`, which you should ignore:
 
 ```swift
 do {
-    checkoutButton = try await sdk.getCheckoutRequirements(updatedRequest)
+    let result = try await sdk.getCheckoutRequirements(updatedRequest)
+    checkoutButton = result.button
 } catch is CancellationError {
     // user changed inputs again before this call finished — ignore
 } catch {
@@ -158,6 +162,16 @@ No need to debounce the picker or check `sdk.state` first.
 
 ```swift
 await sdk.reset()
+```
+
+`reset()` keeps the user's OnramperID login active so the next checkout skips the login sheet. To clear the stored OIDC tokens (a "Sign out" / "Switch account" affordance, or when your app's own user logs out), call `signOut()`:
+
+```swift
+await sdk.signOut()
+// Clears the stored OIDC access + refresh tokens and calls reset(). The next
+// checkout that requires `user_info` re-presents the OnramperID login sheet.
+// The SDK session (DPoP key + partner session) is preserved — no need to
+// re-call initialize(...) unless that session itself has expired.
 ```
 
 ## State Machine
@@ -225,6 +239,7 @@ for await event in sdk.events {
     case .renderingStarted(let url, let renderType): break
     case .completed(let checkoutId): break
     case .failed(let error): break
+    case .checkoutCancelled: break  // user dismissed the payment webview; SDK re-prepares the intent and returns to .readyToCheckout
     }
 }
 ```
