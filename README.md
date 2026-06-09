@@ -345,4 +345,6 @@ Contact your Onramper integration representative.
 
 ## License
 
-Copyright © 2026 Onramper. All rights reserved.
+OnramperSDK is released under the MIT License. See [LICENSE](./LICENSE).
+
+Copyright © 2026 Onramper Technologies B.V.
