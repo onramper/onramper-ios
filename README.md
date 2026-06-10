@@ -345,6 +345,6 @@ Contact your Onramper integration representative.
 
 ## License
 
-OnramperSDK is released under the MIT License. See [LICENSE](./LICENSE).
+OnramperSDK is released under the Apache License 2.0. See [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
 
 Copyright © 2026 Onramper Technologies B.V.
