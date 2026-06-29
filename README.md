@@ -80,7 +80,7 @@ let result = try await sdk.getCheckoutRequirements(
     .init(
         onramperTransactionData: .init(
             source: "usd",
-            destination: "btc",
+            destination: "btc",     // required — the asset the user receives
             amount: 100,
             type: .buy,
             country: "us",            // optional — derived from request IP if omitted
@@ -94,10 +94,58 @@ let result = try await sdk.getCheckoutRequirements(
 )
 
 // result.button: OnramperCheckoutButton — embed this (Buy + ToS sentence)
-// result.quote:  QuoteResponse          — rate, fees, payout for your UI
+// result.quote:  QuoteResponse          — always a successful quote; its fields
+//                (quoteId, ramp, rate, payout, paymentMethod, networkFee,
+//                transactionFee) are non-optional. A request that can't be
+//                priced fails with OnramperError instead.
 ```
 
 `country` (ISO 3166-1 alpha-2) and `subdivision` (ISO 3166-2, e.g. `"us-ca"`) are both optional. Omit them and the Onramper backend will derive both from the request IP. Pass them only when you already know the user's location (e.g. from your own KYC) — the backend treats integrator-supplied values as authoritative for compliance gating.
+
+#### Request parameters
+
+`onramperTransactionData` (`OnramperTransactionData`):
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source` | `String` | Yes | Source (fiat) asset ISO code, e.g. `"usd"`. Lowercased by the SDK. |
+| `destination` | `String` | Yes | Destination (crypto) asset the user receives, e.g. `"btc"`. Lowercased by the SDK. |
+| `amount` | `Double` | Yes | Amount in the `source` currency. |
+| `type` | `TransactionType` | Yes | `.buy` or `.sell`. |
+| `country` | `String?` | No | ISO 3166-1 alpha-2 (e.g. `"us"`). Derived from the request IP when omitted. |
+| `subdivision` | `String?` | No | ISO 3166-2 (e.g. `"us-ca"`). Strongly recommended for US. |
+| `paymentMethod` | `String` | Yes | Payment method id, e.g. `"applepay"`. |
+| `wallet` | `WalletInfo` | Yes | Destination wallet — see below. |
+
+`WalletInfo`:
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `network` | `String` | Yes | Wallet network, e.g. `"bitcoin"`. |
+| `address` | `String` | Yes | Destination wallet address. |
+| `memo` | `String?` | No | Destination tag / memo, when the network requires one. |
+
+Top-level call:
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `onlyOnramps` | `[String]?` | No | Allowlist of provider ids to consider. `nil` = all eligible providers. |
+| `buttonStyle` | `CheckoutButtonStyle?` | No | Button appearance: `backgroundColor` (`Color`, default `.blue`), `foregroundColor` (`Color`, default `.white`), `borderRadius` (`CGFloat`, default `12`). |
+
+#### Quote fields
+
+`result.quote` (`QuoteResponse`) is always a **successful** quote — a request that can't be priced fails with `OnramperError` instead, so the core fields are never null.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `quoteId` | `String` | Unique id for this quote (echoed back on finalize). |
+| `ramp` | `String` | Provider (onramp) id that priced the trade, e.g. `"moonpay"`. |
+| `rate` | `Double` | Exchange rate applied to the trade. |
+| `payout` | `Double` | Amount of the destination asset the user receives. |
+| `paymentMethod` | `String` | Payment method the quote was priced for, e.g. `"applepay"`. |
+| `networkFee` | `Double` | Network/processing fee for the trade. |
+| `transactionFee` | `Double` | Provider transaction fee for the trade. |
+| `recommendations` | `[String]?` | Optional provider recommendation metadata. |
 
 Embed the returned view in your UI. When tapped, the button handles everything: OIDC login sheet (if required), finalize call (with the user's ToS-acceptance timestamp captured at tap), and payment webview sheet.
 
@@ -123,13 +171,14 @@ struct BuyView: View {
 
 ### 4. Requirements Handling
 
-Requirements are a typed Swift enum (`CheckoutRequirement.tos / .amountLimit / .userInfo`) decoded from the Onramper backend's discriminated-union wire format. The SDK consumes them so you don't have to:
+Requirements are a typed Swift enum (`CheckoutRequirement.tos / .amountLimit / .userInfo / .reverification`) decoded from the Onramper backend's discriminated-union wire format. The SDK consumes them so you don't have to:
 
 | Type | SDK Handling |
 |------|--------------|
 | `tos` | Renders a markdown consent sentence below Buy: `By clicking "Buy" button above I agree with Coinbase [Terms of Service](url) and [Privacy Policy](url)`. ToS / Privacy / User-Agreement links appear inline; satisfied items are filtered out. Also exposed via `sdk.tosRequirements: [ToSRequirement]?`. |
 | `amount_limit` | Validated locally during `getCheckoutRequirements()`. Throws `OnramperError.amountOutOfRange`. |
 | `user_info` | SDK transitions to `.requireLogin`. Tapping Buy presents the OIDC login sheet automatically with `required_user_fields` derived from the unsatisfied required entries. |
+| `reverification` (phone) | SDK transitions to `.requireLogin` and presents the OnramperID flow with `phone_reverification=true` — the user re-verifies their **existing** phone number (they can't change it). The backend only emits this when re-verification is actually due, so the SDK acts on its presence without re-checking recency. Email reverification has no client flow yet. |
 
 The agreement timestamp is captured at the moment the user taps Buy and sent in the finalize request as ISO-8601, so the Onramper backend can audit that consent was given alongside the transaction.
 
