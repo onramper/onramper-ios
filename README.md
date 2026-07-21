@@ -348,18 +348,12 @@ do {
 
 ## Security Model
 
-The SDK ships with a full DPoP / App Attest implementation. You don't need to wire any of it — it's automatic — but here's what's happening under the hood:
+The SDK ships with a full DPoP / App Attest implementation. You don't need to wire any of it — it's automatic — but here's some insights on happening under the hood:
 
 | Step | Action |
 |---|---|
 | Once per install | Generate an EC P-256 key in the Secure Enclave (`com.onramper.sdk.dpop-key`). Generate an App Attest key when supported. |
 | `initialize(sessionId:sessionToken:)` | Fetch attestation challenge, run App Attest (or mark Tier 2 if unsupported), build a DPoP proof, exchange the session token for an access/refresh pair. |
-| Every backend call | Fresh DPoP proof per request (`htu`/`htm`/`iat`/`jti`/`ath`) + per-request `X-Onramper-*` security headers. |
-| Proactive refresh | Within 60s of expiry, the SDK refreshes the relevant token (Session or OIDC) before sending the next request. Single-flight: concurrent calls coalesce onto one refresh. |
-| 401 SDK session | Refresh once; on terminal failure call `sessionExpirationHandler`, re-run bootstrap, retry the original request — silent. |
-| 401 OIDC user | Refresh once; on terminal failure transition to `.requireLogin` and re-present the login sheet — silent. |
-
-Tier 2 (no App Attest) is sent as `attestation: { type: "none" }` during exchange — useful for simulators and devices without App Attest support; the server decides what that token can do.
 
 `PrivacyInfo.xcprivacy` ships inside the framework declaring `NSPrivacyCollectedDataTypeDeviceID` (the SHA-256 device fingerprint that the Onramper backend uses for fraud detection and session binding).
 
@@ -375,12 +369,6 @@ Set `logLevel` on `OnramperConfiguration` to control the SDK's diagnostic output
 | `.debug` | Adds low-level detail. |
 
 The SDK never logs session tokens, attestation objects, refresh tokens, or response bodies in a release build. Verbatim header/body dumps are stripped at compile time from release artifacts.
-
-## Versioning
-
-Semantic versioning per [SemVer 2.0.0](https://semver.org). The xcframework is built with Library Evolution enabled, so consumers are not pinned to the exact Swift compiler version it was built with.
-
-See [CHANGELOG.md](./CHANGELOG.md) for release history.
 
 ## Distribution
 
