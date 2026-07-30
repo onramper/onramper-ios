@@ -8,7 +8,10 @@ All notable changes to OnramperSDK are documented here. Format follows
 _Nothing yet._
 
 ## [1.1.1]
-Minor version including security enhancements 
+Minor version including security enhancements.
+
+### Changed (breaking)
+- All clients should upgrade to this version. This version includes a new security paradigm for backend communications that is required.
 
 ## [1.1.0]
 
