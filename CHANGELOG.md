@@ -7,6 +7,9 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.1.1]
+Minor version including security enhancements 
+
 ## [1.1.0]
 
 > The SDK is pre-adoption, so breaking changes ship within the 1.x line.
