@@ -7,6 +7,51 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.2.0]
+
+### Added
+
+- Client-supplied **user-field prefill**. `getCheckoutRequirements` accepts an
+  optional `prefill:` carrying values you already know about the user, and the
+  OnramperID sign-in and additional-info screens arrive pre-populated instead
+  of blank. New public type: `OnramperUserPrefill` — `email`, `firstName`,
+  `lastName`, `phoneNumber`, all optional; supply only what you know.
+
+  ```swift
+  let result = try await sdk.getCheckoutRequirements(
+      request,
+      prefill: OnramperUserPrefill(
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phoneNumber: "+3712345678"   // E.164
+      )
+  )
+  ```
+
+  Prefill is **best-effort and never blocks sign-in.** If it cannot be applied,
+  the login flow opens normally without it. No error surfaces to your app, and
+  there is nothing to handle.
+
+  A prefilled phone number is always a *candidate*: the user still verifies it,
+  and a number already verified on the account takes precedence.
+
+  **Supply `email` only when you are confident** it is the address the user will
+  sign in with. It identifies which account the other values belong to, so it is
+  not merely another prefilled value: when it matches the account that signs in,
+  the remaining values may be applied automatically; when it does not match, the
+  whole prefill is dropped — which is strictly worse than omitting `email`,
+  where the values are still offered to the user for confirmation.
+
+  Prefill is enabled per integration. Talk to your Onramper representative
+  before relying on it — without it enabled, sign-in simply proceeds without
+  prefill.
+
+### Changed
+
+- `getCheckoutRequirements(_:buttonStyle:)` gains a defaulted `prefill:`
+  parameter and is now `getCheckoutRequirements(_:prefill:buttonStyle:)`.
+  Existing call sites compile unchanged; no migration is required.
+
 ## [1.1.1]
 Minor version including security enhancements.
 

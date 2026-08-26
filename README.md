@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.0.0")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.2.0")
 ]
 ```
 
@@ -31,7 +31,7 @@ dependencies: [
 
 Or in Xcode: **File → Add Package Dependencies** and enter the repository URL.
 
-> **Private-access note.** While this repo is private, SwiftPM needs an authenticated path to download the xcframework release asset. Add your GitHub account in **Xcode → Settings → Accounts** (with a PAT that has `repo` scope), or drop a `~/.netrc` entry for `api.github.com` and `github.com`. CLI/CI builds need the netrc; Xcode picks it up from the account list.
+This repository and its release assets are public, so resolving the package needs no GitHub account, personal access token, or `~/.netrc` entry.
 
 ## Quick Start
 
@@ -90,6 +90,12 @@ let result = try await sdk.getCheckoutRequirements(
         ),
         onlyOnramps: nil  // optional whitelist
     ),
+    prefill: .init(                    // optional — see "Prefilling known user values"
+        // email: "ada@example.com",   // only if you're sure — see the caveat there
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+3712345678"
+    ),
     buttonStyle: .init(backgroundColor: .blue, foregroundColor: .white, borderRadius: 12)
 )
 
@@ -130,7 +136,39 @@ Top-level call:
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `onlyOnramps` | `[String]?` | No | Allowlist of provider ids to consider. `nil` = all eligible providers. |
+| `prefill` | `OnramperUserPrefill?` | No | Values you already know about the user, used to pre-populate the OnramperID screens. Best-effort — see below. |
 | `buttonStyle` | `CheckoutButtonStyle?` | No | Button appearance: `backgroundColor` (`Color`, default `.blue`), `foregroundColor` (`Color`, default `.white`), `borderRadius` (`CGFloat`, default `12`). |
+
+#### Prefilling known user values
+
+If your app already knows the user — from your own account system, a previous purchase, or your own KYC — pass those values as `prefill` and the OnramperID screens arrive pre-populated instead of blank.
+
+```swift
+let result = try await sdk.getCheckoutRequirements(
+    request,
+    prefill: OnramperUserPrefill(
+        email: "ada@example.com",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+3712345678"   // E.164
+    )
+)
+```
+
+| Field | Format | Notes |
+|-------|--------|-------|
+| `email` | valid email address | Identifies which account the other values belong to — read the warning below before supplying it. |
+| `firstName` | up to 200 characters, no `<` or `>` | Must not be blank. |
+| `lastName` | up to 200 characters, no `<` or `>` | Must not be blank. |
+| `phoneNumber` | E.164, e.g. `+3712345678` | Always a *candidate*: the user still verifies it, and a number already verified on the account takes precedence. Prefill never skips phone verification. |
+
+Every field is optional — supply only what you know. An `email`-only prefill is valid and pre-populates just the sign-in field.
+
+**Prefill never blocks sign-in.** If it cannot be applied, the login sheet opens normally without it. There is no error to handle and nothing surfaces to your app; set `logLevel: .info` while integrating if you want to see whether it was applied.
+
+> **Supply `email` only when you're confident.** It identifies which account the other values belong to, so it is not just another prefilled value. If it matches the account that signs in, the remaining values may be applied automatically. If it does **not** match, the **whole** prefill is dropped — strictly worse than omitting `email`, where the values are still offered to the user for confirmation. When you aren't sure which address the user will use, leave `email` out.
+
+Whether prefilled values are shown to the user for confirmation or applied without a prompt is configured per integration, as is prefill itself. Talk to your Onramper representative before relying on it — without it enabled, sign-in simply proceeds without prefill.
 
 #### Quote fields
 
@@ -177,7 +215,7 @@ Requirements are a typed Swift enum (`CheckoutRequirement.tos / .amountLimit / .
 |------|--------------|
 | `tos` | Renders a markdown consent sentence below Buy: `By clicking "Buy" button above I agree with Coinbase [Terms of Service](url) and [Privacy Policy](url)`. ToS / Privacy / User-Agreement links appear inline; satisfied items are filtered out. Also exposed via `sdk.tosRequirements: [ToSRequirement]?`. |
 | `amount_limit` | Validated locally during `getCheckoutRequirements()`. Throws `OnramperError.amountOutOfRange`. |
-| `user_info` | SDK transitions to `.requireLogin`. Tapping Buy presents the OIDC login sheet automatically with `required_user_fields` derived from the unsatisfied required entries. |
+| `user_info` | SDK transitions to `.requireLogin`. Tapping Buy presents the OIDC login sheet automatically with `required_user_fields` derived from the unsatisfied required entries. Pass `prefill` to `getCheckoutRequirements` to have these fields arrive pre-populated — see [Prefilling known user values](#prefilling-known-user-values). |
 | `reverification` (phone) | SDK transitions to `.requireLogin` and presents the OnramperID flow with `phone_reverification=true` — the user re-verifies their **existing** phone number (they can't change it). The backend only emits this when re-verification is actually due, so the SDK acts on its presence without re-checking recency. Email reverification has no client flow yet. |
 
 The agreement timestamp is captured at the moment the user taps Buy and sent in the finalize request as ISO-8601, so the Onramper backend can audit that consent was given alongside the transaction.
@@ -368,7 +406,7 @@ Set `logLevel` on `OnramperConfiguration` to control the SDK's diagnostic output
 | `.info` | Adds method + URL path + status for every request. |
 | `.debug` | Adds low-level detail. |
 
-The SDK never logs session tokens, attestation objects, refresh tokens, or response bodies in a release build. Verbatim header/body dumps are stripped at compile time from release artifacts.
+The SDK never logs session tokens, attestation objects, refresh tokens, or response bodies in a release build. Values you pass as `prefill` are never logged at any level either. Verbatim header/body dumps are stripped at compile time from release artifacts.
 
 ## Distribution
 
