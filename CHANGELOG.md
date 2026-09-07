@@ -7,6 +7,54 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.2.1]
+
+### Added
+
+- **Onramper transaction id.** `OnramperClient` now publishes
+  `currentTransactionId` — Onramper's durable identifier for the transaction.
+  It is populated the moment the checkout is finalized, *before* the payment
+  surface renders, and stays readable until you start another checkout or call
+  `reset()`.
+
+  ```swift
+  // SwiftUI — @Published, so views re-render when it lands
+  Text(sdk.currentTransactionId ?? "—")
+
+  // Combine / UIKit
+  sdk.$currentTransactionId
+      .compactMap { $0 }
+      .sink { transactionId in analytics.log(transactionId) }
+
+  // Or read it directly at any point after finalize
+  let transactionId = sdk.currentTransactionId
+  ```
+
+  **This is the id to store, and the one to quote to Onramper support.** It is
+  also available on the finalize response as
+  `onramperTransactionId` if you consume the `checkoutFinalized` event, but the
+  published property is the easier place to read it.
+
+  Note that it is distinct from the checkout id you already receive on
+  `checkoutStarted` / `didStartCheckout` and `completed` /
+  `didCompleteCheckout`:
+
+  | | checkout id | `currentTransactionId` |
+  |---|---|---|
+  | Identifies | one checkout *attempt* | the *transaction* |
+  | Lifetime | single-use; a new one is issued every time the intent is re-created, including each time the user dismisses the payment sheet | stable for the transaction |
+  | Use for | correlating logs within one attempt | **support, reconciliation, status lookups** |
+
+  A single user journey can produce several checkout ids — one per Buy tap —
+  while producing at most one transaction id. If you persist one identifier,
+  persist the transaction id.
+
+  Because it is cleared by `reset()`, read it before resetting.
+
+  Nothing else changed: no existing type, method, event, or delegate callback
+  was modified, so **existing call sites compile unchanged** and no migration
+  is required.
+
 ## [1.2.0]
 
 ### Added

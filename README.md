@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.2.0")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.2.1")
 ]
 ```
 
@@ -298,6 +298,22 @@ Three patterns are supported — use whichever fits your architecture:
 // Automatically re-renders when sdk.state changes
 Text("State: \(sdk.state.label)")
 ```
+
+Published properties: `state`, `lastError`, `tosRequirements`, `currentTransactionId`.
+
+### The transaction id
+
+`currentTransactionId` is Onramper's durable identifier for the transaction. It is populated the moment the checkout is finalized — before the payment surface renders — and stays readable until you start another checkout or call `reset()`.
+
+```swift
+sdk.$currentTransactionId
+    .compactMap { $0 }
+    .sink { transactionId in analytics.log(transactionId) }
+```
+
+**This is the id to store, and the one to quote to Onramper support.** It is distinct from the checkout id delivered by `checkoutStarted` / `didStartCheckout` and `completed` / `didCompleteCheckout`, which identifies a single checkout *attempt* — a new one is issued every time the intent is re-created, including each time the user dismisses the payment sheet. One user journey can burn several checkout ids while producing at most one transaction id.
+
+If you consume the event stream, the same value is on the finalize response as `onramperTransactionId`. Read `currentTransactionId` before calling `reset()`, which clears it.
 
 ### Delegate (UIKit)
 
