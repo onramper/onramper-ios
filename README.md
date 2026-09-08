@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.2.1")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.2.2")
 ]
 ```
 

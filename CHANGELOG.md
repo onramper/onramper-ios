@@ -7,6 +7,13 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.2.2]
+
+### Fixed
+
+- Improved the reliability of SDK session initialization and refresh in
+  production. No API changes or migration are required.
+
 ## [1.2.1]
 
 ### Added
