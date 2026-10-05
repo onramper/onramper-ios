@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.2.2")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.3.0")
 ]
 ```
 
@@ -184,6 +184,7 @@ Whether prefilled values are shown to the user for confirmation or applied witho
 | `networkFee` | `Double` | Network/processing fee for the trade. |
 | `transactionFee` | `Double` | Provider transaction fee for the trade. |
 | `recommendations` | `[String]?` | Optional provider recommendation metadata. |
+| `providerContext` | `[String: ProviderJSONValue]?` | Provider-specific JSON data. Most integrations can ignore it; use `.stringValue` to read a string entry. For MoonPay it carries the payment disclosures the SDK displays for you. |
 
 Embed the returned view in your UI. When tapped, the button handles everything: OIDC login sheet (if required), finalize call (with the user's ToS-acceptance timestamp captured at tap), and payment webview sheet.
 
@@ -219,6 +220,18 @@ Requirements are a typed Swift enum (`CheckoutRequirement.tos / .amountLimit / .
 | `reverification` (phone) | SDK transitions to `.requireLogin` and presents the OnramperID flow with `phone_reverification=true` — the user re-verifies their **existing** phone number (they can't change it). The backend only emits this when re-verification is actually due, so the SDK acts on its presence without re-checking recency. Email reverification has no client flow yet. |
 
 The agreement timestamp is captured at the moment the user taps Buy and sent in the finalize request as ISO-8601, so the Onramper backend can audit that consent was given alongside the transaction.
+
+### Payment surface
+
+After Buy, the SDK finalizes the checkout and presents the payment surface the provider needs — you don't choose or configure it. For **MoonPay with Apple Pay**, the SDK runs MoonPay's checkout inside the sheet: it handles guest checkout or MoonPay account onboarding when required, any 3-D Secure verification, and shows MoonPay's required payment disclosures next to the Apple Pay button. The disclosures can't be hidden.
+
+The checkout ends in one of three ways:
+
+| Outcome | State | What to do |
+|---|---|---|
+| Completed | `.completed` | Done. |
+| Accepted, settlement pending (MoonPay) | `.paymentPending` | The payment was accepted but the crypto transfer is still underway. The SDK shows "Payment processing" with the transaction id. **Don't treat it as success or failure** — track it with `currentTransactionId` through your own status flow. Dismissing the sheet keeps this outcome. |
+| Failed | `.failed(OnramperError)` | The SDK shows the error's `userMessage` and support code with a **Try Again** button, which closes the sheet and starts a fresh checkout. |
 
 ### 5. Re-requesting Checkout
 
@@ -278,10 +291,11 @@ idle → initializing → ready ──→ checkoutPreparing
                        │                     v
 completed ←── rendering ←── finalizing
     │            │
-    v            v
+    v            ├→ paymentPending   (accepted, settlement pending)
   failed ←── (any state)
 
 # Re-request: any post-init state can transition back to checkoutPreparing.
+# paymentPending is neither success nor failure; reset() or a re-request leaves it.
 # Login cancel: dismissing the OIDC sheet bounces .authenticating back to .requireLogin
 # (Buy is tappable again to retry).
 ```
@@ -326,7 +340,10 @@ func onramperClient(_ client: OnramperClient, didRequireLogin requirements: [Che
 func onramperClient(_ client: OnramperClient, didBecomeReadyToCheckout checkoutId: String) { }
 func onramperClient(_ client: OnramperClient, didCompleteCheckout checkoutId: String) { }
 func onramperClient(_ client: OnramperClient, didFailWithError error: OnramperError) { }
+func onramperClient(_ client: OnramperClient, didReceiveProviderEvent event: CheckoutEvent) { }  // provider lifecycle, see below
 ```
+
+All delegate methods have default no-op implementations — adopt only the ones you need.
 
 ### AsyncStream (Swift concurrency)
 
@@ -343,6 +360,14 @@ for await event in sdk.events {
     case .completed(let checkoutId): break
     case .failed(let error): break
     case .checkoutCancelled: break  // user dismissed the payment webview; SDK re-prepares the intent and returns to .readyToCheckout
+
+    // Provider lifecycle (also delivered via didReceiveProviderEvent) — informational, the SDK drives the flow
+    case .providerReady, .paymentAuthorized, .paymentProcessing: break
+    case .paymentPending: break     // accepted, settlement pending; no .completed follows
+    case .paymentCancelled: break   // cancelled in the provider UI; .checkoutCancelled follows
+    case .providerError(let reason): break  // diagnostic code, not user copy; .failed follows
+    case .challengeStarted, .challengeCompleted: break  // MoonPay 3-D Secure verification
+    case .customerOnboardingRequired: break  // MoonPay guest checkout unavailable; SDK opens MoonPay onboarding
     }
 }
 ```
@@ -378,6 +403,7 @@ do {
     // Security
     case .deviceBlocked: break                                    // server rejected the device — terminal
     case .securityStorageFailed(let osStatus): break
+    case .securityTrustFailed(let host): break                    // TLS certificate pinning failed — terminal, don't retry
 
     // OnramperID
     case .oidcFlowCancelled: break
@@ -386,9 +412,12 @@ do {
     case .userTokenInvalid: break                                 // surfaced only if SDK reactive retry also fails
     case .userTokenRefreshFailed(let reason): break               // OIDC refresh terminally rejected; SDK has already transitioned to .requireLogin
 
-    // Rendering
+    // Rendering / payment
     case .webviewLoadFailed(let reason): break
     case .deepLinkFailed(let reason): break
+    case .paymentFailed(let message): break                       // provider confirmed the payment failed (e.g. card declined)
+    case .providerFailed(let message): break                      // payment surface failed; payment outcome NOT confirmed
+    case .applePayNotConfigured: break                            // no Apple Pay card in Wallet on this device
 
     // Networking
     case .networkError(let code, let message): break
@@ -398,7 +427,17 @@ do {
 }
 ```
 
+For UI, use `userMessage` — plain, non-technical copy that is safe to show end users (never a URL, token or error domain; English only) — and `supportCode`, a short stable code that is safe to show next to it and matches what the SDK logs. `errorDescription` and `debugInfo` are diagnostic text for logs, not for end users:
+
+```swift
+} catch let error as OnramperError {
+    showAlert(message: error.userMessage, footnote: "Error code: \(error.supportCode)")
+}
+```
+
 > `debugInfo` is opaque and intended for support tickets / crash reports — log it but don't switch on its contents.
+
+> **`.providerFailed` after a status error:** the payment may already have gone through. Its `userMessage` tells the user to check their transaction before trying again — keep that guidance visible if you show your own error UI.
 
 ## Security Model
 
@@ -413,16 +452,35 @@ The SDK ships with a full DPoP / App Attest implementation. You don't need to wi
 
 ## Logging
 
-Set `logLevel` on `OnramperConfiguration` to control the SDK's diagnostic output. Routed through `os.Logger` under the subsystem `com.onramper.sdk`; view in Console.app or `log stream`.
+The SDK is silent by default (`logLevel: .off`). Set `logLevel` on `OnramperConfiguration` to receive structured, sanitized `OnramperLogRecord`s. By default they go to `os.Logger` under the subsystem `com.onramper.sdk` (view in Console.app or `log stream`).
 
 | Level | Emits |
 |---|---|
 | `.off` *(default)* | Nothing. Use in production. |
-| `.error` | Failed requests only — non-2xx status + decoded error code. |
-| `.info` | Adds method + URL path + status for every request. |
-| `.debug` | Adds low-level detail. |
+| `.error` | Failures — non-2xx responses, decoded error codes, terminal checkout failures. |
+| `.info` | Adds one record per milestone: security bootstrap, requests (method, route template, status, duration), state changes, provider frames. |
+| `.debug` | Adds request starts and low-level detail, including payment-page JavaScript errors. |
 
-The SDK never logs session tokens, attestation objects, refresh tokens, or response bodies in a release build. Values you pass as `prefill` are never logged at any level either. Verbatim header/body dumps are stripped at compile time from release artifacts.
+Supply `logHandler` to send records to your own sink — for example a file you let testers export. A custom handler **replaces** the `os.Logger` output; compose it with `OnramperLog.systemHandler` to keep both:
+
+```swift
+OnramperConfiguration(
+    apiKey: "pk_live_...",
+    clientId: "YOUR_ONRAMPER_ID_CLIENT_ID",
+    logLevel: .debug,
+    logHandler: { record in
+        OnramperLog.systemHandler(record)   // keep Xcode / Console output
+        myLogStore.append(record)           // your sink
+    },
+    sessionExpirationHandler: { /* … */ }
+)
+```
+
+Each record has `timestamp`, `level`, `category` (e.g. `HTTP`, `Checkout`, `OIDC`), `event` (a stable name such as `request.finished`), `context` (`[String: String]`, already sanitized) and `message` — a single line like `request.finished durationMs=184 method=POST route=v1/checkout/intent status=200`. Categories, event names and context keys are stable.
+
+The handler is called synchronously on whichever thread emits the record (main thread, SDK actors, background queues): keep it fast and thread-safe, don't call back into the SDK, and hop to the main thread yourself if your sink needs it.
+
+**Privacy.** The SDK never logs tokens, credentials, DPoP proofs, attestation objects, request or response bodies, card data or prefill values. URLs are reduced to their host, HTTP paths to route templates, wallet addresses are masked, and errors are summarized. A final sanitizer also redacts anything that looks like a URL, email, phone number, card number or token. Provider error messages and (at `.debug`) payment-page JavaScript errors are kept for diagnosis after this best-effort redaction, so **treat exported logs as potentially containing personal data**. Your app owns their storage, retention and export.
 
 ## Distribution
 

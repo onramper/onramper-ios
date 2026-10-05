@@ -7,6 +7,82 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.3.0]
+
+### Upgrading
+
+- **Exhaustive `switch`es need new cases.** `OnramperError`, `OnramperState`
+  and `CheckoutEvent` gained cases (listed below). A `switch` without a
+  `default` stops compiling until you handle them; nothing else in your
+  integration needs to change.
+- **Users sign in to OnramperID once more after updating.** Stored
+  credentials are now kept separately per environment, and the previous
+  shared entries are removed on first launch. The SDK session re-establishes
+  itself silently; a user who was signed in sees the OnramperID login sheet
+  again on their next checkout.
+
+### Added
+
+- **MoonPay Apple Pay checkout.** When MoonPay prices an Apple Pay checkout,
+  the SDK runs MoonPay's checkout inside the payment sheet: guest checkout or
+  MoonPay account onboarding when required, 3-D Secure verification, and
+  MoonPay's required payment disclosures shown next to the Apple Pay button.
+  Nothing to integrate — the checkout button handles it, and the disclosures
+  can't be hidden.
+- **Pending payments.** A payment that is accepted but not yet settled now
+  ends in `OnramperState.paymentPending` (with `CheckoutEvent.paymentPending`)
+  instead of `.completed`. The SDK shows "Payment processing" with the
+  transaction id; dismissing the sheet keeps this outcome. Treat it as
+  neither success nor failure and track it with `currentTransactionId`.
+- **End-user error copy.** Every `OnramperError` now has `userMessage` —
+  plain copy that is safe to show users — and `supportCode`, a short stable
+  code that is safe to show alongside it and matches what the SDK logs.
+
+  ```swift
+  showAlert(message: error.userMessage, footnote: "Error code: \(error.supportCode)")
+  ```
+
+- New `OnramperError` cases:
+  - `.paymentFailed(String)` — the provider confirmed the payment failed
+    (e.g. card declined).
+  - `.providerFailed(String)` — the payment surface failed without confirming
+    the payment outcome. After a status error the payment may have gone
+    through; `userMessage` tells the user to check before retrying.
+  - `.applePayNotConfigured` — no Apple Pay card in Wallet on this device.
+- New `CheckoutEvent` cases, also delivered through
+  `didReceiveProviderEvent`: `paymentPending`, `challengeStarted`,
+  `challengeCompleted` (3-D Secure) and `customerOnboardingRequired`
+  (MoonPay guest checkout unavailable; the SDK opens MoonPay onboarding).
+- **Custom log sink.** `OnramperConfiguration` accepts `logHandler`, which
+  receives structured `OnramperLogRecord`s (`timestamp`, `level`, `category`,
+  `event`, `context`, `message`) — for example to write a log file your
+  testers can export. Compose it with `OnramperLog.systemHandler` to keep the
+  Console output.
+- `QuoteResponse.providerContext` (`[String: ProviderJSONValue]?`) with
+  provider-specific data, and the `ProviderJSONValue` and `PaymentDisclosure`
+  types. Most integrations can ignore them.
+
+### Changed
+
+- **Logging is structured and sanitized at every level.** Records name a
+  stable category and event instead of free text, HTTP paths are logged as
+  route templates and URLs as hosts only, and a final sanitizer redacts
+  anything resembling a URL, email, phone number, card number or token.
+  Provider error messages are kept after best-effort redaction, so treat
+  exported logs as potentially containing personal data. The default remains
+  `.off`.
+- `errorDescription` and `debugInfo` strings are now sanitized and no longer
+  contain URLs, response bodies or tokens.
+- The checkout failure screen shows `userMessage` and the support code, and
+  its **Try Again** button closes the sheet and starts a fresh checkout.
+- The MoonPay Apple Pay sheet opens at a compact height and expands when the
+  provider needs more room.
+
+### Fixed
+
+- Stored credentials no longer carry over between environments (e.g. a
+  staging session being reused in production).
+
 ## [1.2.2]
 
 ### Fixed
