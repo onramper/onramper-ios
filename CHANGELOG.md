@@ -7,6 +7,26 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.3.1]
+
+### Added
+
+- **SDK version at runtime.** `OnramperClient.sdkVersion` returns the
+  installed SDK version as plain semver (e.g. `"1.3.1"`) — handy for your
+  diagnostics, analytics, or a support screen.
+
+  ```swift
+  Text("Onramper SDK \(OnramperClient.sdkVersion)")
+  ```
+
+  Use it instead of reading the framework bundle: the xcframework's
+  `CFBundleShortVersionString` is not the SDK version, and under static
+  linking a `Bundle(for:)` lookup returns your app's version instead.
+  It is a `nonisolated static` property, so you can read it from any thread
+  or actor without an `OnramperClient` instance.
+
+No existing API changed, so no migration is required.
+
 ## [1.3.0]
 
 ### Upgrading

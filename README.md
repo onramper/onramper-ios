@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.3.0")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.3.1")
 ]
 ```
 
@@ -32,6 +32,10 @@ dependencies: [
 Or in Xcode: **File → Add Package Dependencies** and enter the repository URL.
 
 This repository and its release assets are public, so resolving the package needs no GitHub account, personal access token, or `~/.netrc` entry.
+
+### Checking the installed version
+
+`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.3.1"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
 
 ## Quick Start
 
@@ -490,7 +494,7 @@ Source is not part of this repository.
 
 ## Support
 
-Contact your Onramper integration representative.
+Contact your Onramper integration representative. Include the SDK version (`OnramperClient.sdkVersion`) and, for a specific payment, the `currentTransactionId`.
 
 ## License
 
