@@ -10,8 +10,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "OnramperSDK",
-            url: "https://github.com/onramper/onramper-ios/releases/download/v1.3.0/OnramperSDK.xcframework.zip",
-            checksum: "7611f869eab69109b317bb2b81e23c99f9d6f108bb6425ed2aace5cc4d5ad766"
+            url: "https://github.com/onramper/onramper-ios/releases/download/v1.3.1/OnramperSDK.xcframework.zip",
+            checksum: "c003eb348062fb755d3de304f1f7ea4f1a7253192fa7e33adb794f2ce1d90d6a"
         ),
     ]
 )
