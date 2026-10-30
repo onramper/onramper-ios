@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.4.0")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.4.1")
 ]
 ```
 
@@ -35,7 +35,7 @@ This repository and its release assets are public, so resolving the package need
 
 ### Checking the installed version
 
-`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.4.0"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
+`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.4.1"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
 
 ## Quick Start
 
@@ -247,7 +247,7 @@ The agreement timestamp is captured at the moment the user taps Buy and sent in 
 
 ### Payment surface
 
-After Buy, the SDK finalizes the checkout and presents the payment surface the provider needs — you don't choose or configure it. For **MoonPay with Apple Pay**, the SDK runs MoonPay's checkout inside the sheet: it handles guest checkout or MoonPay account onboarding when required, any 3-D Secure verification, and shows MoonPay's required payment disclosures next to the Apple Pay button. The disclosures can't be hidden.
+After Buy, the SDK finalizes the checkout and presents the payment surface the provider needs — you don't choose or configure it. For **MoonPay with Apple Pay**, the SDK runs MoonPay's checkout inside the sheet: it handles guest checkout or MoonPay account onboarding when required, any 3-D Secure verification, and shows MoonPay's required payment disclosures next to the Apple Pay button. The disclosures can't be hidden. When there are no disclosures to show, the SDK goes straight to the native Apple Pay sheet; the checkout sheet stays invisible (Buy keeps spinning) and appears only if MoonPay needs the user or to show the result. While it is invisible, your screen can't present its own sheet or modal.
 
 The checkout ends in one of three ways:
 

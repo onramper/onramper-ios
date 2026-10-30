@@ -7,6 +7,20 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.4.1]
+
+### Changed
+
+- **Smoother MoonPay Apple Pay checkout.** When MoonPay has no payment
+  disclosures to show, Buy now opens the native Apple Pay sheet directly,
+  without the intermediate MoonPay sheet. The checkout sheet stays invisible
+  until MoonPay needs the user (for example, 3-D Secure) or there is a result
+  to show, so your screen can't present its own sheet or modal meanwhile.
+  Coinbase Apple Pay checkout also keeps its sheet invisible until needed.
+
+No existing API changed, so existing call sites compile unchanged and no
+migration is required.
+
 ## [1.4.0]
 
 ### Added
