@@ -7,6 +7,63 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.4.0]
+
+### Added
+
+- **Trusted partner login.** If your backend has already verified the
+  user's email, add `user: { email }` to the signed
+  `POST /v2/partners/{apiKey}/client-sessions` request. On Buy, the SDK then
+  signs the user in to OnramperID without the email OTP:
+  - **Best case:** no login UI at all — the user goes straight to the
+    payment sheet.
+  - **Profile fields missing:** only the OnramperID "additional info" form
+    appears. There is no OTP screen and no "Grant permission" screen.
+  - If an OnramperID account already exists for that email, the user is
+    signed in to it; otherwise one is created with the email marked verified.
+
+  Send the email from your own verified user record, never from the app's
+  request, and send it again from your `sessionExpirationHandler`. When
+  `user` is present, the session response carries
+  `trustedLogin: "bound" | "unavailable"`.
+
+  Trusted login is **enabled per integration** on the Onramper side; until it
+  is, every session reports `"unavailable"` and sign-in stays the normal OTP
+  flow. It is best-effort and never blocks sign-in: on any failure the normal
+  OnramperID sign-in appears, with no error to handle. No app code changes are
+  needed.
+
+  While the Buy button spins, the login sheet is already presented but
+  invisible (up to ~15s). Your screen stays interactive, but it can't present
+  its own sheet or modal until the login sheet appears or closes.
+
+### Changed
+
+- **`signOut()` also clears the OnramperID web session**, so the next sign-in
+  on the device doesn't offer to continue as the previous user. It closes a
+  login sheet that is open (visible or not) without reporting an error, and
+  turns trusted login off for that `OnramperClient`, because its session was
+  minted for the previous user. When your app's signed-in user changes, call
+  `signOut()`, then create and initialize a new `OnramperClient` with a
+  session minted for the new user.
+- When login is needed, the Buy button spins briefly while the SDK checks for
+  a trusted login, then the login sheet appears. Without trusted login enabled
+  this check is quick and falls back to the normal sign-in.
+- **The login sheet handles load failures.** If the OnramperID page can't
+  load, the sheet shows "Couldn't load sign-in" with **Retry** and **Close**
+  instead of staying blank. A page already on screen is kept if a later
+  request fails, so the user doesn't lose their progress.
+- If OnramperID ends sign-in with an error (for example, the user declines),
+  the login sheet closes and Buy is tappable again.
+
+### Fixed
+
+- A stalled OnramperID sign-in now fails after 15 seconds instead of leaving
+  the Buy button spinning.
+
+No existing API changed and no enum gained cases, so existing call sites
+compile unchanged and no migration is required.
+
 ## [1.3.1]
 
 ### Added

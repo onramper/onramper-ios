@@ -17,7 +17,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.3.1")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.4.0")
 ]
 ```
 
@@ -35,13 +35,21 @@ This repository and its release assets are public, so resolving the package need
 
 ### Checking the installed version
 
-`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.3.1"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
+`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.4.0"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
 
 ## Quick Start
 
 ### 1. Mint a session (partner backend)
 
 Your backend calls `POST /v2/partners/{apiKey}/client-sessions` (signed with the partner key) and receives an opaque `(sessionId, sessionToken)` pair. Hand both to the app via your own channel — the token is single-use and time-bounded, and not a credential the SDK can mint on its own.
+
+**Trusted login (optional).** If your backend has already verified the user's email, add `user: { email }` to the same signed request. On Buy, the SDK then signs the user in to OnramperID without the email OTP (see [Trusted partner login](#trusted-partner-login)).
+
+- Send the email from your **own verified user record**, never from the app's request.
+- A user who changes their email must re-verify it before you send the new address.
+- Your `sessionExpirationHandler` creates a new session, so send `user.email` again there.
+- When `user` is present, the response also carries `trustedLogin: "bound" | "unavailable"`. `"unavailable"` means the session was created but sign-in stays the normal OTP flow.
+- Trusted login must be enabled for your integration on the Onramper side; until then every session reports `"unavailable"`. Talk to your Onramper contact.
 
 ### 2. Initialize
 
@@ -212,6 +220,18 @@ struct BuyView: View {
 }
 ```
 
+#### Trusted partner login
+
+When login is needed, the Buy tap first asks Onramper for a one-time login token for the session (the Buy button keeps spinning meanwhile). For a session minted with a verified `user.email` (see step 1):
+
+- **Best case:** no login UI at all — the user goes straight to the payment sheet.
+- **Profile fields missing:** only the OnramperID "additional info" form appears. There is no OTP screen and no "Grant permission" screen.
+- If an OnramperID account already exists for that email, the user is signed in to it; otherwise one is created with the email marked verified.
+- **Any failure** (no token, timeout, rejected token): the normal OnramperID sign-in with OTP appears instead. Trusted login never blocks sign-in, and there is no error to handle.
+- **While the Buy button spins** the login sheet is already presented, just invisible (up to ~15s). Your screen stays interactive, but it can't present its own sheet or modal until the login sheet appears or closes.
+
+For sessions without `user.email`, or partners without trusted login, the Buy button spins briefly and the normal login sheet appears. No app code changes are needed beyond sending `user.email` from your backend — and, when your user changes, calling `signOut()` and starting a new `OnramperClient` with a session minted for the new user (see [step 6](#6-reset)).
+
 ### 4. Requirements Handling
 
 Requirements are a typed Swift enum (`CheckoutRequirement.tos / .amountLimit / .userInfo / .reverification`) decoded from the Onramper backend's discriminated-union wire format. The SDK consumes them so you don't have to:
@@ -268,14 +288,18 @@ No need to debounce the picker or check `sdk.state` first.
 await sdk.reset()
 ```
 
-`reset()` keeps the user's OnramperID login active so the next checkout skips the login sheet. To clear the stored OIDC tokens (a "Sign out" / "Switch account" affordance, or when your app's own user logs out), call `signOut()`:
+`reset()` keeps the user's OnramperID login active so the next checkout skips the login sheet. To clear the stored OIDC tokens (a "Sign out" / "Switch account" affordance, or when your app's own user logs out), call `signOut()`. It also clears the OnramperID web session, so the next sign-in doesn't offer to continue as the previous user, and closes a login sheet that is open (visible or not) without reporting an error.
+
+**When your app's signed-in user changes:** call `signOut()`, then mint a new SDK session with the new user's `user.email` and create + initialize a new `OnramperClient`. An existing OnramperID login on the device wins, so without `signOut()` the next checkout reuses the previous user's OnramperID account. After `signOut()` alone, sign-in falls back to the normal OTP flow: trusted login stays off for that client, because its session was minted for the previous user.
 
 ```swift
 await sdk.signOut()
-// Clears the stored OIDC access + refresh tokens and calls reset(). The next
-// checkout that requires `user_info` re-presents the OnramperID login sheet.
-// The SDK session (DPoP key + partner session) is preserved — no need to
-// re-call initialize(...) unless that session itself has expired.
+// Clears the stored OIDC access + refresh tokens and the OnramperID web
+// session, closes any open login sheet, and calls reset(). The next
+// checkout that requires `user_info` re-presents the OnramperID login sheet
+// (normal OTP sign-in; trusted login stays off for this client). The SDK
+// session (DPoP key + partner session) is preserved, so checkout keeps
+// working on this client.
 ```
 
 ## State Machine
