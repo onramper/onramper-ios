@@ -8,6 +8,7 @@ iOS Swift SDK for integrating Onramper's crypto onramping into native mobile app
 - Swift 5.9+
 - Xcode 15+
 - App Attest capability on the host app (recommended; Tier-2 fallback works without it on simulators / unsupported devices)
+- For the [Stripe checkout](#stripe-checkout-experimental): Apple Pay and App Attest capabilities, and a physical iPhone
 
 ## Installation
 
@@ -17,7 +18,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.4.1")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.5.0")
 ]
 ```
 
@@ -33,9 +34,11 @@ Or in Xcode: **File → Add Package Dependencies** and enter the repository URL.
 
 This repository and its release assets are public, so resolving the package needs no GitHub account, personal access token, or `~/.netrc` entry.
 
+**Stripe dependency (from 1.5.0).** The `OnramperSDK` product also contains the `OnramperStripe` module and depends on Stripe's iOS SDK (`stripe-ios-spm`), pinned to exactly `26.15.1`. Swift Package Manager downloads and builds it for every app, even one that never turns the Stripe checkout on. If your app already depends on Stripe's iOS SDK, it must use 26.15.1.
+
 ### Checking the installed version
 
-`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.4.1"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
+`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.5.0"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
 
 ## Quick Start
 
@@ -254,7 +257,7 @@ The checkout ends in one of three ways:
 | Outcome | State | What to do |
 |---|---|---|
 | Completed | `.completed` | Done. |
-| Accepted, settlement pending (MoonPay) | `.paymentPending` | The payment was accepted but the crypto transfer is still underway. The SDK shows "Payment processing" with the transaction id. **Don't treat it as success or failure** — track it with `currentTransactionId` through your own status flow. Dismissing the sheet keeps this outcome. |
+| Accepted, settlement pending (MoonPay; Stripe until delivery) | `.paymentPending` | The payment was accepted but the crypto transfer is still underway. The SDK shows "Payment processing" with the transaction id. **Don't treat it as success or failure** — track it with `currentTransactionId` through your own status flow. Dismissing the sheet keeps this outcome. |
 | Failed | `.failed(OnramperError)` | The SDK shows the error's `userMessage` and support code with a **Try Again** button, which closes the sheet and starts a fresh checkout. |
 
 ### 5. Re-requesting Checkout
@@ -302,6 +305,59 @@ await sdk.signOut()
 // working on this client.
 ```
 
+## Stripe checkout (experimental)
+
+A native Stripe checkout inside the normal SDK flow: **USD to USDC on Solana, Ethereum or Base, paid with Apple Pay, for customers in the US outside New York, up to 100 USD per purchase (before fees).** It is off until your app turns it on. Stripe and Onramper must have set it up for your app first; talk to your Onramper contact.
+
+**1. Capabilities.** In Xcode, add **Apple Pay** with the merchant ID set up with Stripe, and **App Attest** (`com.apple.developer.devicecheck.appattest-environment` = `production`). Stripe requires app attestation, so this checkout doesn't run in the Simulator.
+
+**2. Turn it on**, once at app start, on the main thread, before the first checkout:
+
+```swift
+import OnramperStripe
+
+StripeCheckout.enable(
+    merchantIdentifier: "merchant.com.yourcompany.app",
+    merchantName: "Your App"   // optional; Apple Pay shows "Your App (through Stripe)"
+)
+```
+
+Without this call, a request for `["stripe"]` runs the regular checkout instead.
+
+**3. Request it** with `onlyOnramps: ["stripe"]` (exactly that list) in the normal `getCheckoutRequirements` call:
+
+```swift
+let result = try await sdk.getCheckoutRequirements(
+    .init(
+        onramperTransactionData: .init(
+            source: "usd",
+            destination: "usdc_solana",   // or usdc_ethereum, usdc_base
+            amount: 25,                   // USD before fees, at most 100, at most 2 decimals
+            type: .buy,
+            country: "us",                // optional, derived from the request IP if omitted
+            subdivision: "us-ca",         // optional; New York is not supported
+            paymentMethod: "applepay",
+            wallet: .init(network: "solana", address: userWalletAddress)
+        ),
+        onlyOnramps: ["stripe"]
+    )
+)
+```
+
+The wallet network must match the destination network. Inputs this checkout can't handle throw `OnramperError.invalidRequest(field:debugInfo:)` or `.amountOutOfRange` before anything is sent.
+
+**4. Show the total.** `amount` and the quote's `rate` exclude fees. `result.quote.payout` is the USDC the user receives, and the total Apple Pay will charge is in the quote's provider context:
+
+```swift
+if case .string(let total)? = result.quote.providerContext?["sourceTotalAmount"] {
+    // e.g. "25.83": show this as the total
+}
+```
+
+**5. What the user sees.** After Buy: OnramperID sign-in as usual, then the Apple Pay sheet opens on its own. First-time users then create or sign in to a Link account (Stripe's checkout account) and may be asked to verify their identity. The checkout sheet stays invisible until a step needs it; meanwhile your screen can't present its own sheet or modal.
+
+**6. Outcome.** Same states, delegate calls and events as other providers, with one difference: a Stripe checkout reports `.paymentPending` once the payment goes through and then `.completed` when the USDC is delivered. For Stripe, `.paymentPending` is not final.
+
 ## State Machine
 
 The SDK exposes observable state so you can build UI around it:
@@ -324,6 +380,7 @@ completed ←── rendering ←── finalizing
 
 # Re-request: any post-init state can transition back to checkoutPreparing.
 # paymentPending is neither success nor failure; reset() or a re-request leaves it.
+# Stripe checkouts only: paymentPending → completed once the crypto is delivered.
 # Login cancel: dismissing the OIDC sheet bounces .authenticating back to .requireLogin
 # (Buy is tappable again to retry).
 ```
@@ -514,7 +571,7 @@ The handler is called synchronously on whichever thread emits the record (main t
 
 Distributed as a precompiled `.xcframework` (iOS device + simulator slices) attached to each GitHub Release. The `Package.swift` in this repo points at the matching tag's asset and is regenerated automatically per release.
 
-Source is not part of this repository.
+Source is not part of this repository, except the `OnramperStripe` module (`Sources/OnramperStripe`), which ships as source because it builds against Stripe's iOS SDK.
 
 ## Support
 

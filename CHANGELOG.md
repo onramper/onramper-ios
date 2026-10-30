@@ -7,6 +7,47 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.5.0]
+
+### Added
+
+- **Stripe checkout (experimental).** A native Stripe checkout inside the
+  normal SDK flow: USD to USDC on Solana, Ethereum or Base, paid with Apple
+  Pay, for customers in the US outside New York, up to 100 USD per purchase
+  before fees. It is off until your app turns it on:
+  1. Add the Apple Pay (merchant ID set up with Stripe) and App Attest
+     capabilities. It needs a physical iPhone.
+  2. `import OnramperStripe` and call
+     `StripeCheckout.enable(merchantIdentifier:merchantName:)` once at app
+     start.
+  3. Request `onlyOnramps: ["stripe"]` in `getCheckoutRequirements`.
+
+  The total Apple Pay will charge (fees included) is in
+  `quote.providerContext["sourceTotalAmount"]`. After Buy the Apple Pay sheet
+  opens on its own; first-time users then create or sign in to a Link
+  account (Stripe's checkout account) and may be asked to verify their
+  identity. A Stripe checkout reports `.paymentPending` once paid and then
+  `.completed` when the USDC is delivered. Stripe and Onramper must set it up
+  for your app first; see [Stripe checkout](README.md#stripe-checkout-experimental).
+
+### Changed
+
+- **New dependency: Stripe's iOS SDK.** The `OnramperSDK` product now also
+  contains the `OnramperStripe` module (shipped as source) and depends on
+  `stripe-ios-spm`, pinned to exactly `26.15.1`. Swift Package Manager
+  downloads and builds it for every app, even one that never turns the
+  Stripe checkout on, so builds take longer and apps get larger. If your app
+  already depends on Stripe's iOS SDK, it must use 26.15.1.
+
+### Fixed
+
+- **Checkouts no longer fail after the SDK session's first refresh.** The
+  SDK session is refreshed after 15 minutes; until now the refresh response
+  failed to decode, which ended any checkout still running at that point.
+
+No existing API changed, so existing call sites compile unchanged and no
+code migration is required.
+
 ## [1.4.1]
 
 ### Changed
