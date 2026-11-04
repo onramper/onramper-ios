@@ -7,6 +7,58 @@ All notable changes to OnramperSDK are documented here. Format follows
 
 _Nothing yet._
 
+## [1.6.0]
+
+### Changed
+
+- **The Stripe checkout is now an opt-in product, `OnramperStripe`.** The
+  `OnramperSDK` product is the binary alone again, with no third-party
+  dependencies: apps that don't use the Stripe checkout no longer build or
+  ship Stripe's iOS SDK. Apps that do must add the `OnramperStripe` product
+  to their target (it brings `stripe-ios-spm`, still pinned to exactly
+  `26.15.1`); linking it next to `OnramperSDK` is fine, both use the same
+  binary. **Migration for apps using the Stripe checkout from 1.5.0:** add
+  `.product(name: "OnramperStripe", package: "onramper-ios")`; without it,
+  `import OnramperStripe` no longer compiles. No code changes.
+- **Returning Link users sign in to Link before Apple Pay.** A checkout that
+  Stripe stops (for example for identity checks or region) now ends before
+  Face ID instead of after it. New Link users still get Apple Pay first,
+  because creating a Link account needs the Wallet name and phone. This is
+  the default; Onramper can switch a partner back to Apple Pay first for
+  everyone. Until Onramper's backend supports the setting, Apple Pay comes
+  first for everyone, as in 1.5.0.
+- The `finalize.finished` log record of a Stripe checkout now carries
+  `transactionId`, `checkoutId` and `ramp`, like other checkouts.
+
+### Added
+
+- **Link sign-in kept for the app session.** After the first Stripe purchase,
+  later purchases by the same OnramperID user in the same app process show no
+  Link screen. The sign-in is kept in memory only: after an app relaunch the
+  next purchase signs in to Link again. `reset()` keeps it; `signOut()` logs
+  the user out of Link. A different OnramperID email or Stripe account starts
+  a fresh Link sign-in.
+- **Clear message for a declined card.** When the card issuer declines the
+  Apple Pay card, the checkout fails with `OnramperError.paymentFailed` and
+  the message "Your card was declined. No payment was made. Try again with
+  another card." instead of waiting for up to 10 minutes.
+- `StripeCheckout.linkSignInOverride` (`.beforePayment` / `.afterPayment`)
+  lets demo and QA builds force either Link sign-in order. Production apps
+  leave it `nil` to follow Onramper's setting.
+
+### Fixed
+
+- **Stripe checkout when Stripe resolves a different region after sign-in.**
+  The checkout used to fail; it now opens Apple Pay once more so the payment
+  method matches the verified region, then continues.
+- **`import OnramperStripe` next to `@stripe/stripe-react-native`** no longer
+  fails with "no such module 'StripeCore'".
+
+The Link sign-in order, the Link sign-in reuse and the declined-card message
+need Onramper's backend support; until it is deployed, Stripe checkouts work
+as in 1.5.0. Apps not using the Stripe checkout get no changes beyond the
+smaller dependency graph.
+
 ## [1.5.0]
 
 ### Added

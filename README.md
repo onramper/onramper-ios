@@ -8,7 +8,7 @@ iOS Swift SDK for integrating Onramper's crypto onramping into native mobile app
 - Swift 5.9+
 - Xcode 15+
 - App Attest capability on the host app (recommended; Tier-2 fallback works without it on simulators / unsupported devices)
-- For the [Stripe checkout](#stripe-checkout-experimental): Apple Pay and App Attest capabilities, and a physical iPhone
+- For the [Stripe checkout](#stripe-checkout-experimental): the `OnramperStripe` product, Apple Pay and App Attest capabilities, and a physical iPhone
 
 ## Installation
 
@@ -18,7 +18,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.5.0")
+    .package(url: "https://github.com/onramper/onramper-ios.git", from: "1.6.0")
 ]
 ```
 
@@ -34,11 +34,20 @@ Or in Xcode: **File → Add Package Dependencies** and enter the repository URL.
 
 This repository and its release assets are public, so resolving the package needs no GitHub account, personal access token, or `~/.netrc` entry.
 
-**Stripe dependency (from 1.5.0).** The `OnramperSDK` product also contains the `OnramperStripe` module and depends on Stripe's iOS SDK (`stripe-ios-spm`), pinned to exactly `26.15.1`. Swift Package Manager downloads and builds it for every app, even one that never turns the Stripe checkout on. If your app already depends on Stripe's iOS SDK, it must use 26.15.1.
+**Stripe checkout (opt-in).** The [Stripe checkout](#stripe-checkout-experimental) is a second product, `OnramperStripe`. Only apps that link it build Stripe's iOS SDK (`stripe-ios-spm`, pinned to exactly `26.15.1`; if your app already depends on Stripe's iOS SDK, it must use 26.15.1). Linking it next to `OnramperSDK` is fine, both use the same binary:
+
+```swift
+.target(name: "YourApp", dependencies: [
+    .product(name: "OnramperSDK", package: "onramper-ios"),
+    .product(name: "OnramperStripe", package: "onramper-ios"),
+])
+```
+
+In 1.5.0 the `OnramperSDK` product contained the Stripe checkout and built Stripe's iOS SDK for every app. From 1.6.0, apps using the Stripe checkout must add `OnramperStripe`; apps that don't no longer build Stripe.
 
 ### Checking the installed version
 
-`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.5.0"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
+`OnramperClient.sdkVersion` returns the SDK version as plain semver (e.g. `"1.6.0"`), from any thread and without an `OnramperClient` instance. Don't read it from the framework bundle: the xcframework's `CFBundleShortVersionString` is not the SDK version, and under static linking `Bundle(for:)` returns your app's version.
 
 ## Quick Start
 
@@ -291,7 +300,7 @@ No need to debounce the picker or check `sdk.state` first.
 await sdk.reset()
 ```
 
-`reset()` keeps the user's OnramperID login active so the next checkout skips the login sheet. To clear the stored OIDC tokens (a "Sign out" / "Switch account" affordance, or when your app's own user logs out), call `signOut()`. It also clears the OnramperID web session, so the next sign-in doesn't offer to continue as the previous user, and closes a login sheet that is open (visible or not) without reporting an error.
+`reset()` keeps the user's OnramperID login active so the next checkout skips the login sheet (and, in the Stripe checkout, the user's Link sign-in for this app session). To clear the stored OIDC tokens (a "Sign out" / "Switch account" affordance, or when your app's own user logs out), call `signOut()`. It also clears the OnramperID web session, so the next sign-in doesn't offer to continue as the previous user, closes a login sheet that is open (visible or not) without reporting an error, and logs the user out of Link in the Stripe checkout.
 
 **When your app's signed-in user changes:** call `signOut()`, then mint a new SDK session with the new user's `user.email` and create + initialize a new `OnramperClient`. An existing OnramperID login on the device wins, so without `signOut()` the next checkout reuses the previous user's OnramperID account. After `signOut()` alone, sign-in falls back to the normal OTP flow: trusted login stays off for that client, because its session was minted for the previous user.
 
@@ -311,7 +320,7 @@ A native Stripe checkout inside the normal SDK flow: **USD to USDC on Solana, Et
 
 **1. Capabilities.** In Xcode, add **Apple Pay** with the merchant ID set up with Stripe, and **App Attest** (`com.apple.developer.devicecheck.appattest-environment` = `production`). Stripe requires app attestation, so this checkout doesn't run in the Simulator.
 
-**2. Turn it on**, once at app start, on the main thread, before the first checkout:
+**2. Turn it on.** Add the `OnramperStripe` product to your target (see [Installation](#swift-package-manager)), then call this once at app start, on the main thread, before the first checkout:
 
 ```swift
 import OnramperStripe
@@ -354,7 +363,13 @@ if case .string(let total)? = result.quote.providerContext?["sourceTotalAmount"]
 }
 ```
 
-**5. What the user sees.** After Buy: OnramperID sign-in as usual, then the Apple Pay sheet opens on its own. First-time users then create or sign in to a Link account (Stripe's checkout account) and may be asked to verify their identity. The checkout sheet stays invisible until a step needs it; meanwhile your screen can't present its own sheet or modal.
+**5. What the user sees.** After Buy: OnramperID sign-in as usual, then Stripe's steps:
+
+- **Returning Link user** (Link is Stripe's checkout account): signs in to Link first (often with Link's one-time code), then the Apple Pay sheet opens on its own. If Stripe stops the checkout (for example for identity checks or region), it ends before Face ID.
+- **New Link user:** the Apple Pay sheet opens first, then they create a Link account and may be asked to verify their identity. Creating the account needs the Wallet name and phone, which is why Apple Pay comes first.
+- **Later purchases in the same app session:** the Link sign-in is kept in memory, so the Apple Pay sheet opens with no Link screen. After an app relaunch the next purchase signs in to Link again.
+
+Link first for returning users is the default; Onramper can switch a partner to Apple Pay first for everyone. Demo and QA builds can force either order with `StripeCheckout.linkSignInOverride = .beforePayment` or `.afterPayment` (leave it `nil` in production). If the card is declined, the checkout fails with `OnramperError.paymentFailed` asking the user to try another card; no payment is made. The checkout sheet stays invisible until a step needs it; meanwhile your screen can't present its own sheet or modal.
 
 **6. Outcome.** Same states, delegate calls and events as other providers, with one difference: a Stripe checkout reports `.paymentPending` once the payment goes through and then `.completed` when the USDC is delivered. For Stripe, `.paymentPending` is not final.
 
