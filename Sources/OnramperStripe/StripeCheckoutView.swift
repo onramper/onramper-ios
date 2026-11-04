@@ -33,12 +33,15 @@ struct StripeCheckoutView: View {
         }
         // Apple Pay and Link present from a controller inside this sheet,
         // never through a global key window that may belong to another scene.
+        // The model keeps it too (weakly) for a returning Link user's sign-in
+        // before Apple Pay, which starts there once Stripe is ready.
         .background(PresenterReader {
             presenter = $0
+            model.presenterReady($0)
             model.autoCollectApplePayIfPending(from: $0)
         })
         // Stripe usually becomes ready after the sheet appeared, so try again
-        // when the Apple Pay step starts.
+        // when the Apple Pay step starts (also after the sign-in before it).
         .onChange(of: model.phase) { _ in
             if let presenter { model.autoCollectApplePayIfPending(from: presenter) }
         }

@@ -57,10 +57,18 @@ enum CheckoutFailure: Error, Equatable {
         case .timedOut: return "This is taking longer than expected. No payment was made. Start a new checkout to try again."
         case .stopped(let reason, let restart):
             if restart { return CheckoutFailure.changedPrice.userMessage }
+            // Stripe declined the card at checkout (headless answers a 402 card
+            // error with this stop): no charge, and another card can succeed.
+            if reason == CheckoutFailure.paymentDeclinedReason {
+                return "Your card was declined. No payment was made. Try again with another card."
+            }
             // The reason is a backend enum code, safe to show and useful in support reports.
             return "Checkout stopped (\(reason ?? "unknown")). No further payment attempt will be made. Start a new checkout to try again."
         }
     }
+
+    /// Backend stop reason for a card Stripe declined at checkout.
+    static let paymentDeclinedReason = "payment_declined"
 
     /// After `performCheckout` was invoked but before it confirmed the
     /// payment: the charge may or may not have happened.
